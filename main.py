@@ -42,14 +42,21 @@ model = genai.GenerativeModel(model_name='gemini-pro',
 							  generation_config=generation_config,
 							  safety_settings=safety_settings)
 
-#TODO: Store the last 10 conversations for each user
+def escape_markdown(text):
+    # First, replace literal '\n' with actual newline characters
+    text = text.replace('\\n', '\n')
 
+    # # Escape Markdown special characters except for newline characters
+    # markdown_chars = r'[\*_\[\]()~`>#\+\-=|{}\.!]'
+    # escaped_text = re.sub(markdown_chars, lambda m: '\\' + m.group(0), text)
+
+    return text
 
 # To send sentences one at a time with a delay
 def send_gemini_responses(chat_id, gemini_text_respone, delay=1):
 	# print("gemini response:", gemini_text_respone)
 	# Split the text by the character '\n'
-	messages = gemini_text_respone.split('\n')
+	messages = escape_markdown(gemini_text_respone).split('\n')
 	# Send each message separately
 	print("messages:")
 	for message in messages:
@@ -76,6 +83,25 @@ def start(message):
 		behavior_prompt = f.read()
 	chat.send_message(behavior_prompt)
 	
+	# Reply to user
+	gemini_response = chat.history[-1]
+	print(gemini_response.parts[0])
+	if gemini_response:
+		# bot.send_message(message.chat.id, gemini_response.parts[0].text)
+  		send_gemini_responses(message.chat.id, gemini_response.parts[0].text)
+	else:
+		print("No response")
+		#TODO: Loging: No reply from gemini ai, ayo i this logic cannot
+		bot.send_message(message.chat.id, "There was a mistake.. Please restart the chat by using the `/start` command.")
+
+@bot.message_handler(commands=['generate'])
+def generate_full_itinerary(message):
+	bot.send_chat_action(message.chat.id, 'typing')
+
+	# prompt gemini ai to generate full itinerary
+	with open ("itinerary_generation_prompt.txt", "r") as f:
+		itinerary_generation_prompt = f.read()
+	chat.send_message(itinerary_generation_prompt)
 	# Reply to user
 	gemini_response = chat.history[-1]
 	print(gemini_response.parts[0])
