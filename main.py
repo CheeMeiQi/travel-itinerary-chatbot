@@ -1,113 +1,113 @@
-from typing import Final
-from telegram import Update
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    filters,
-    ContextTypes,
-)
-import os
-import vertexai                                           
-from vertexai.language_models import TextGenerationModel 
+import telebot
+from secret_tokens import TELEBOT_API_KEY, GOOGLE_AI_API_KEY
+import google.generativeai as genai
 
-TOKEN: Final = "6409677499:AAEv6YdJw_X8MCuIk0pHQpPYqKssui2p1Ww"
-BOT_NAME: Final = "Travel Itinerary Chatbot"
-BOT_USERNAME: Final = "@get_that_itinerary_bot"
+import re
+import time
 
+# Telbot
+bot = telebot.TeleBot(TELEBOT_API_KEY, parse_mode=None) # You can set parse_mode by default. HTML or MARKDOWN
 
-# Commands
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Hello! Thanks for chatting with me! Should we plan a trip together?"
-    )
+# Gemini Api
+genai.configure(api_key=GOOGLE_AI_API_KEY)
 
+# Set up the model
+generation_config = {
+  "temperature": 0.3,
+  "top_p": 1,
+  "top_k": 1,
+  "max_output_tokens": 2048,
+}
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Type where you want to go and what you want to do. I can plan to plan your itinerary!"
-    )
+safety_settings = [
+  {
+    "category": "HARM_CATEGORY_HARASSMENT",
+    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+  },
+  {
+    "category": "HARM_CATEGORY_HATE_SPEECH",
+    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+  },
+  {
+    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+  },
+  {
+    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+  },
+]
 
+model = genai.GenerativeModel(model_name='gemini-pro',
+							  generation_config=generation_config,
+							  safety_settings=safety_settings)
 
-async def start_LLM_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.chat_data["llm_active"] = True
-    await update.message.reply_text(
-        "This is to call the LLM model. Please type in what you want to ask the chatbot."
-    )
-    
-# Helper function to get LLM state from context
-def get_llm_state(context):
-    return context.chat_data.get("llm_active", False)
-
-# Responses
-def handle_response(text: str, context) -> str:
-    processed: str = text.lower()
-
-    if get_llm_state(context):
-        llm_response = generate(text)
-        return llm_response
-    else:
-        if "hello" in processed:
-            return "Hey there! Where would you like to go?"
-
-    return "I do not understand what you wrote..."
+#TODO: Store the last 10 conversations for each user
 
 
-# Handle messages
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message_type: str = update.message.chat.type
-    text: str = update.message.text  
+# To send sentences one at a time with a delay
+def send_gemini_responses(chat_id, gemini_text_respone, delay=1):
+	# print("gemini response:", gemini_text_respone)
+	# Split the text by the character '\n'
+	messages = gemini_text_respone.split('\n')
+	# Send each message separately
+	print("messages:")
+	for message in messages:
+		print(message)
+		if message.strip():  # If the stripped message is not empty
+			bot.send_message(chat_id, message, parse_mode="Markdown")
+			time.sleep(delay)
+	
 
-    print(f'User ({update.message.chat.id}) in {message_type}: "{text}"')
+'''
+Defining message handlers 
+'''
 
-    if "group" in message_type:
-        if BOT_USERNAME in text:
-            new_text: str = text.replace(BOT_USERNAME, "").strip()
-            response: str = handle_response(new_text, context)
-        else:
-            return
-    else:
-        response: str = handle_response(text, context)
+# '/start' command
+@bot.message_handler(commands=['start'])
+def start(message):
+	bot.send_chat_action(message.chat.id, 'typing')
+	# Start new Gemini Conversation for the user
+	global chat 
+	chat = model.start_chat(history=[])
+	
+	# Feed behavioural prompt to Gemini
+	with open ("initial_prompt.txt", "r") as f:
+		behavior_prompt = f.read()
+	chat.send_message(behavior_prompt)
+	
+	# Reply to user
+	gemini_response = chat.history[-1]
+	print(gemini_response.parts[0])
+	if gemini_response:
+		# bot.send_message(message.chat.id, gemini_response.parts[0].text)
+  		send_gemini_responses(message.chat.id, gemini_response.parts[0].text)
+	else:
+		print("No response")
+		#TODO: Loging: No reply from gemini ai, ayo i this logic cannot
+		bot.send_message(message.chat.id, "There was a mistake.. Please restart the chat by using the `/start` command.")
 
-    print("Bot: ", response)
-    await update.message.reply_text(response)
 
+@bot.message_handler(func=lambda m: True)
+def handle_user_request(message):
+	bot.send_chat_action(message.chat.id, 'typing')
+	# pass user's text message to gemini
+	chat.send_message(message.text)
 
-# Logging errors
-async def error(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print(f"Update {update} caused error {context.error}")
-
-
-def generate(prompt: str) -> str:
-     # Initialize Vertex AI access.
-    vertexai.init(project="travelitinerarychatbot", location="us-central1")  
-    parameters = {                                                 
-        "candidate_count": 1,                                      
-        "max_output_tokens": 1024,                                
-        "temperature": 0.5,                                        
-        "top_p": 0.8,                                              
-        "top_k": 40,                                               
-    }                                                             
-    model = TextGenerationModel.from_pretrained("text-bison@002")  
-    response = model.predict(prompt, **parameters)      
-    print(f"Response from Model: {response.text}")                              
-    return response.text 
+	# Reply to user
+	gemini_response = chat.history[-1]
+	if gemini_response:
+		# print(gemini_response.parts[0].text)
+  		print(gemini_response.parts[0])
+		# bot.send_message(message.chat.id, gemini_response.parts[0].text)
+  		send_gemini_responses(message.chat.id, gemini_response.parts[0].text)
+	else:
+		#TODO: Loging: No reply from gemini ai, ayo i think this cannot
+		print("No response")
+		pass
 
 if __name__ == "__main__":
-    print("Starting bot...")
-    app = Application.builder().token(TOKEN).build()
+	print("Starting Travel Bot..")
+	bot.infinity_polling()
 
-    # Commands
-    app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("llm", start_LLM_command))
 
-    # Messages
-    app.add_handler(MessageHandler(filters.TEXT, handle_message))
-
-    # Errors
-    app.add_error_handler(error)
-
-    # Polls the bot
-    print("Polling...")
-    app.run_polling(poll_interval=3)
