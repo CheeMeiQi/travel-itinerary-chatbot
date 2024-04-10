@@ -191,7 +191,7 @@ def handle_user_request(message):
 	except Exception as e:
 		print(e)
 		bot.send_message(message.chat.id, "Please enter `/start` to start the Travel Bot!")
-		
+		 
 
 if __name__ == "__main__":
 	print("Starting Travel Bot..")
