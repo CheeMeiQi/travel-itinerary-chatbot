@@ -1,15 +1,15 @@
 import telebot
-#from secret_tokens import TELEBOT_API_KEY, GOOGLE_AI_API_KEY
+from secret_tokens import TELEBOT_API_KEY, GOOGLE_AI_API_KEY
 import google.generativeai as genai
 
 import re
 import time
 
 # Telbot
-bot = telebot.TeleBot("7036133959:AAGQOx9KntsfGTrXXVTxBaHaQV2sM7wwvB8", parse_mode=None) # You can set parse_mode by default. HTML or MARKDOWN
+bot = telebot.TeleBot(TELEBOT_API_KEY, parse_mode=None) # You can set parse_mode by default. HTML or MARKDOWN
 
 # Gemini Api
-genai.configure(api_key="AIzaSyAdcdxxFTfUJ_0OpCq-70i3JIFWBxucyOc")
+genai.configure(api_key=GOOGLE_AI_API_KEY)
 
 # Set up the model
 generation_config = {
@@ -92,15 +92,6 @@ def send_gemini_responses(chat_id, gemini_text_respone, delay=1):
 	messages = clean_response(gemini_text_respone).split('\n')
 	# Send each message separately
 	print("messages:")
-<<<<<<< HEAD
-	# for message in messages:
-	# 	print(message)
-	# 	if message.strip():  # If the stripped message is not empty
-	# 		bot.send_message(chat_id, message, parse_mode="Markdown")
-	# 		time.sleep(delay)
-	bot.send_message(chat_id, messages, parse_mode="Markdown")
-	
-=======
 	for message in messages:
 		print(message)
 		if message.strip():  # If the stripped message is not empty
@@ -118,7 +109,6 @@ def send_itinerary_response(chat_id, gemini_text_respone, delay=1):
 		if message.strip():  # If the stripped message is not empty
 			bot.send_message(chat_id, message, parse_mode="MarkdownV2")
 			time.sleep(delay)
->>>>>>> a5a08399173b3e6fb8416f04c32c513e3d92e195
 
 '''
 Defining message handlers 
@@ -201,10 +191,10 @@ def handle_user_request(message):
 	except Exception as e:
 		print(e)
 		bot.send_message(message.chat.id, "Please enter `/start` to start the Travel Bot!")
-		 
+		
 
 if __name__ == "__main__":
 	print("Starting Travel Bot..")
 	bot.infinity_polling()
-	#TODO: review prompt generated sometimes
+
 
