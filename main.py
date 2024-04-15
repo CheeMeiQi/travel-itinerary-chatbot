@@ -1,14 +1,9 @@
 from typing import Final
-from telegram import Update
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    filters,
-    ContextTypes,
-)
+import telebot
 import os
-import asyncio
+import re
+import traceback 
+import requests
 import vertexai                                           
 from vertexai.language_models import TextGenerationModel 
 from vertexai.generative_models import GenerativeModel
@@ -17,179 +12,289 @@ import vertexai.preview.generative_models as generative_models
 TOKEN: Final = "6409677499:AAEv6YdJw_X8MCuIk0pHQpPYqKssui2p1Ww"
 BOT_NAME: Final = "Travel Itinerary Chatbot"
 BOT_USERNAME: Final = "@get_that_itinerary_bot"
+TRIPADVISOR_API: Final = "1340A505AD4B4495BF6E2A74F2609F68"
 
+# Telebot
+bot = telebot.TeleBot(TOKEN, parse_mode=None)
+
+# Dictionary to store user states and data
+chat_data = {}
 
 # Commands
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Enter the start command and type where you want to go and what you want to do. I will help to plan your itinerary!"
+@bot.message_handler(commands=['help'])
+def help_command(message):
+    chat_id = message.chat.id
+    bot.send_chat_action(message.chat.id, 'typing')
+    bot.send_message(chat_id,
+        "Enter the start command and answer all questions. Gemini will help to plan your itinerary!"
     )
 
+@bot.message_handler(commands=['start'])
+def start_command(message):
+    chat_id = message.chat.id
+    bot.send_chat_action(message.chat.id, 'typing')
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.chat_data["llm_active"] = True
-    context.chat_data["user_data"] = {}
-    context.chat_data["user_state"] = "waiting_place"
-    
-    # Initialise model once only
-    model, chat, parameters, safety_settings = initialise_model()
-
-     # Store model, parameters, and safety_settings in context
-    context.chat_data["llm_model"] = model
-    context.chat_data["llm_parameters"] = parameters
-    context.chat_data["llm_safety_settings"] = safety_settings
-    context.chat_data["llm_chat_history"] = chat
-
-    await update.message.reply_text(
-        "Hello, let's plan a trip together! Where do you wish to go?"
-    )
-    
-    # # Ask the list of questions and store the user data
-    # await askQuestions(update, context)
-
-    # # Construct prompt using collected data
-    # prompt = construct_prompt(context.chat_data["user_data"])
-
-    # # Send prompt to LLM to plan itinerary
-    # llm_response = generate(model, chat, parameters, safety_settings, prompt)
-    # print("Gemini: ", llm_response)
-
-    # # Send LLM response to user
-    # await update.message.reply_text(llm_response)
-
-
-async def askQuestions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        chat_data[chat_id] = {"user_state": "waiting_place", "user_data": {}}
         
-    # Initialize user data dictionary to store responses
-    context.chat_data["user_data"] = {}
-    
-    # List of questions
-    questions = [
-        "What is period of travel (please provides dates)?",
-        "How many days are you planning to stay?",
-        "What is your budget?",
-        "What is your desired type of trip? Eg: Relaxation, backpacker, solo travel, with family, with friends, etc.",
-        "What type of accommodation do you prefer?",
-        "Do you have any specific activities or places you want to visit? Eg: Scenery, theme parks, shopping, etc",
-        "Any dietary restrictions or preferences?",
-        "Any other requirements or specifications? Eg: How many cities to explore, pace of travel, etc"
-    ]
-    
-    # Iterate through questions and ask one by one
-    for question in questions:
-        await update.message.reply_text(question)
-        
-        # Wait for user response
-        response = await get_user_response(update, context)
-        print("User response: ", response)
-        
-        # Store user response in chat data
-        context.chat_data["user_data"][question] = response
-    
-    await update.message.reply_text("Thank you for providing the information. I will now generate your itinerary.")    
-    
-# latest_update_id = -1
-async def get_user_response(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
-    
-    user_state = context.chat_data.get("user_state")
+        # Initialise model once only
+        model, chat, parameters, safety_settings = initialise_model()
 
-    if user_state == "waiting_place":
-        context.chat_data["user_data"]["Where do you wish to go?"] = update.message.text
-        context.chat_data["user_state"] = "waiting_travel_period"  # Update state
-        await update.message.reply_text(
-            'What is period of travel (please provides dates)?'
+        # Store model, parameters, and safety_settings in chat_data
+        chat_data[chat_id]["model"] = model
+        chat_data[chat_id]["chat"] = chat
+        chat_data[chat_id]["parameters"] = parameters
+        chat_data[chat_id]["safety_settings"] = safety_settings
+
+        bot.send_message(chat_id, "Hello, let's plan a trip together! Where do you wish to go?")
+    except Exception as e:
+        print(e)
+        bot.send_message(chat_id, "Oops, an error occurred. Please enter /start command again.")
+
+# @bot.message_handler(func=lambda message: True) 
+@bot.message_handler(func=lambda message: chat_data.get(message.chat.id, {}).get("user_state", "").startswith("waiting")) 
+def get_user_response(message):
+    chat_id = message.chat.id
+    bot.send_chat_action(message.chat.id, 'typing')
+
+    try:
+        user_state = chat_data.get(chat_id, {}).get("user_state", "waiting")
+
+        if user_state == "waiting_place":
+            chat_data[chat_id]["user_data"]["Where do you wish to go?"] = message.text
+            chat_data[chat_id]["user_state"] = "waiting_travel_period"
+            bot.send_message(
+                chat_id,
+                'What is period of travel (please provides dates)?'
+            )
+        elif user_state == "waiting_travel_period":
+            chat_data[chat_id]["user_data"]["What is period of travel (please provides dates)?"] = message.text
+            chat_data[chat_id]["user_state"] = "waiting_origin"
+            bot.send_message(
+                chat_id,
+                'Where are you travelling from?'
+            )
+        elif user_state == "waiting_origin":
+            chat_data[chat_id]["user_data"]["Where are you travelling from?"] = message.text
+            chat_data[chat_id]["user_state"] = "waiting_travel_duration"
+            bot.send_message(
+                chat_id,
+                'How many days are you planning to stay?'
+            )
+        elif user_state == "waiting_travel_duration":
+            chat_data[chat_id]["user_data"]["How many days are you planning to stay?"] = message.text
+            chat_data[chat_id]["user_state"] = "waiting_budget"
+            bot.send_message(
+                chat_id,
+                'What is your budget?'
+            )
+        elif user_state == "waiting_budget":
+            chat_data[chat_id]["user_data"]["What is your budget?"] = message.text
+            chat_data[chat_id]["user_state"] = "waiting_trip_type"
+            bot.send_message(
+                chat_id,
+                'What is your desired type of trip? Eg: Relaxation, backpacker, solo travel, with family, with friends, etc.'
+            )
+        elif user_state == "waiting_trip_type":
+            chat_data[chat_id]["user_data"]["What is your desired type of trip? Eg: Relaxation, backpacker, solo travel, with family, with friends, etc."] = message.text
+            chat_data[chat_id]["user_state"] = "waiting_accommodation"
+            bot.send_message(
+                chat_id,
+                'What type of accommodation do you prefer?'
+            )
+        elif user_state == "waiting_accommodation":
+            chat_data[chat_id]["user_data"]["What type of accommodation do you prefer?"] = message.text
+            chat_data[chat_id]["user_state"] = "waiting_activities"
+            bot.send_message(
+                chat_id,
+                'Do you have any specific activities or places you want to visit? Eg: Scenery, theme parks, shopping, etc.'
+            )
+        elif user_state == "waiting_activities":
+            chat_data[chat_id]["user_data"]["Do you have any specific activities or places you want to visit? Eg: Scenery, theme parks, shopping, etc."] = message.text
+            chat_data[chat_id]["user_state"] = "waiting_preferences"
+            bot.send_message(
+                chat_id,
+                'Any dietary restrictions or preferences?'
+            )
+        elif user_state == "waiting_preferences":
+            chat_data[chat_id]["user_data"]["Any dietary restrictions or preferences?"] = message.text
+            chat_data[chat_id]["user_state"] = "waiting_specifications"
+            bot.send_message(
+                chat_id,
+                'Any other requirements or specifications? Eg: How many cities to explore, pace of travel, etc.'
+            )
+        elif user_state == "waiting_specifications":
+            chat_data[chat_id]["user_data"]["Any other requirements or specifications? Eg: How many cities to explore, pace of travel, etc."] = message.text
+            bot.send_message(
+                chat_id,
+                'Please wait a moment while I generate your intinerary...'
+            )
+            chat_data[chat_id]["user_state"] = "waiting"
+            bot.send_chat_action(message.chat.id, 'typing')            
+            prompt = construct_prompt(chat_data[chat_id]["user_data"])
+            print("Prompt: ", prompt)
+            model = chat_data[chat_id].get("model")
+            parameters = chat_data[chat_id].get("parameters")
+            safety_settings = chat_data[chat_id].get("safety_settings")
+            chat = chat_data[chat_id].get("chat")
+            llm_response = generate(model, chat, parameters, safety_settings, prompt)
+            formatted_response = clean_response(llm_response)
+
+            # Send LLM response to user
+            bot.send_message(
+                chat_id,
+                formatted_response,
+                parse_mode="MarkdownV2"
+            )    
+                  
+            reviews_prompt = "What are the reviews talking about on Tripadvisor?"
+            bot.send_chat_action(message.chat.id, 'typing')
+            llm_response = generate(model, chat, parameters, safety_settings, reviews_prompt)
+            formatted_response = clean_response(llm_response)
+
+            # Send LLM response to user
+            bot.send_message(
+                chat_id,
+                formatted_response,
+                parse_mode="MarkdownV2"
+            )
+            
+        else:
+            print("User message: ", message.text)
+            model = chat_data[chat_id].get("model")
+            parameters = chat_data[chat_id].get("parameters")
+            safety_settings = chat_data[chat_id].get("safety_settings")
+            chat = chat_data[chat_id].get("chat")
+            llm_response = generate(model, chat, parameters, safety_settings, message.text)
+            formatted_response = clean_response(llm_response)
+            # Send LLM response to user
+            bot.send_message(
+                chat_id,
+                formatted_response,
+                parse_mode="MarkdownV2"
+            )
+    except Exception as e:
+        print(type(e))
+        traceback.print_exc()
+        bot.send_message(chat_id, "Oops, an error occurred. Please enter /start command again.")
+
+@bot.message_handler(commands=['tripadvisor'])
+def tripadvisor_command(message):
+    try: 
+        chat_id = message.chat.id
+        bot.send_chat_action(message.chat.id, 'typing')
+        bot.send_message(chat_id,
+            "Enter the location you want to search on TripAdvisor."
         )
-    elif user_state == "waiting_travel_period":
-        context.chat_data["user_data"]["What is period of travel (please provides dates)?"] = update.message.text
-        context.chat_data["user_state"] = "waiting_travel_duration"  # Update state
-        await update.message.reply_text(
-            'How many days are you planning to stay?'
-        )
-    elif user_state == "waiting_travel_duration":
-        context.chat_data["user_data"]["How many days are you planning to stay?"] = update.message.text
-        context.chat_data["user_state"] = "waiting_budget"  # Update state
-        await update.message.reply_text(
-            'What is your budget?'
-        )
-    elif user_state == "waiting_budget":
-        context.chat_data["user_data"]["What is your budget?"] = update.message.text
+        # Update user state to indicate that we're waiting for location input
+        chat_data[chat_id] = {"user_state": "tripadvisor"}
+    except Exception as e:
+        print(e)
+        bot.send_message(chat_id, "Oops, an error occurred. Please enter /tripadvisor command again.")
 
-        prompt = construct_prompt(context.chat_data["user_data"])
-        print("Prompt: ", prompt)
-        model = context.chat_data.get("llm_model")
-        parameters = context.chat_data.get("llm_parameters")
-        safety_settings = context.chat_data.get("llm_safety_settings") 
-        chat = context.chat_data.get("llm_chat_history")    
-        llm_response = generate(model, chat, parameters, safety_settings, prompt)
-        print("Gemini: ", llm_response)
+@bot.message_handler(func=lambda message: chat_data.get(message.chat.id, {}).get("user_state") == "tripadvisor")
+def get_tripadvisor_location(message):
+    chat_id = message.chat.id
+    location = message.text
+    bot.send_chat_action(message.chat.id, 'typing')
 
-        # Send LLM response to user
-        await update.message.reply_text(llm_response)
+    try:
+        # Get location ID
+        url_locationID = "https://api.content.tripadvisor.com/api/v1/location/search?language=en"
+        headers_locationID = {"accept": "application/json"}
+        params_locationID = {"key": TRIPADVISOR_API, "searchQuery": location}
+        response_locationID = requests.get(url_locationID, headers=headers_locationID, params=params_locationID)
+        response_locationID_json = response_locationID.json()
+        location_ID = response_locationID_json["data"][0]["location_id"]
+        print("Location response: ", response_locationID_json)
+
+        details_message = ""
+        url_details = f"https://api.content.tripadvisor.com/api/v1/location/{location_ID}/details?key={TRIPADVISOR_API}&language=en&currency=SGD"
+        headers_details = {"accept": "application/json"}
+        response_details = requests.get(url_details, headers=headers_details)
+        response_details_json = response_details.json()
+
+        ranking = response_details_json["ranking_data"]["ranking_string"]
+        web_url = response_details_json["web_url"]
+        overall_rating = response_details_json["rating"]
+        terrible_rating_count = response_details_json["review_rating_count"]["1"]
+        poor_rating_count = response_details_json["review_rating_count"]["2"]
+        average_rating_count = response_details_json["review_rating_count"]["3"]
+        verygood_rating_count = response_details_json["review_rating_count"]["4"]
+        excellent_rating_count = response_details_json["review_rating_count"]["5"]
+
+        details_message += f"**{ranking}**\nLink: {web_url}\nOverall Rating: {overall_rating}\n**Rating Count**\nTerrible: {terrible_rating_count}\nPoor: {poor_rating_count}\nAverage: {average_rating_count}\nVery Good: {verygood_rating_count}\nExcellent: {excellent_rating_count}\n"
         
+        formatted_details = clean_response(details_message)
+        bot.send_message(
+            chat_id,
+            formatted_details,
+            parse_mode="MarkdownV2"
+        )
         
+        reviews_message = ""    
+        url = f"https://api.content.tripadvisor.com/api/v1/location/{location_ID}/reviews?key={TRIPADVISOR_API}&language=en"
+        headers = {"accept": "application/json"}
+        response = requests.get(url, headers=headers)
+        print("Response: ", response.text)
+        response_json = response.json()
+        for review_data in response_json["data"]:
+            title = review_data["title"]
+            rating = review_data["rating"]
+            text = review_data["text"]
+            review_url = review_data["url"]
+            
+            # Append the review details to the message string, separating each review with 2 lines
+            reviews_message += f"**{title}**\nRating: {rating}\nReviews: {text}\nLink: {review_url}\n\n"
+            formatted_reviews = clean_response(reviews_message)
+        bot.send_message(
+            chat_id,
+            formatted_reviews,
+            parse_mode="MarkdownV2"
+        )
+    except Exception as e:
+        print(type(e))
+        traceback.print_exc()
+        bot.send_message(chat_id, "Oops, an error occurred. Please enter /tripadvisor command again.")
 
-
+        
 def construct_prompt(user_data: dict) -> str:
     # Construct prompt using collected user data
-    prompt = f'''Travel Itinerary:
+    prompt = f'''Plan a Travel Itinerary according to these requirements:
             \nDestination: {user_data['Where do you wish to go?']}
+            \nTravelling from: {user_data['Where are you travelling from?']}
             \nTravel Period: {user_data['What is period of travel (please provides dates)?']}
             \nStay Duration: {user_data['How many days are you planning to stay?']} days
-            \nBudget: {user_data['What is your budget?']}'''
+            \nBudget: {user_data['What is your budget?']}
+            \nTravel Type: {user_data['What is your desired type of trip? Eg: Relaxation, backpacker, solo travel, with family, with friends, etc.']}
+            \nAccommodation Preference: {user_data['What type of accommodation do you prefer?']}
+            \nActivities/Places to Visit: {user_data['Do you have any specific activities or places you want to visit? Eg: Scenery, theme parks, shopping, etc.']}
+            \nDietary Restrictions/Preferences: {user_data['Any dietary restrictions or preferences?']}
+            \nAdditional Requirements: {user_data['Any other requirements or specifications? Eg: How many cities to explore, pace of travel, etc.']}
+            \nWith these requirements, generate a full itinerary with all necessary details.
+            \nFor each place you suggested, help me find review and ratings on Tripadvisor. Do not provide URL links.
+            \nHelp me find available flights for the travel period on Google flights.
+            \nHelp me find available accommodations to book based on the accommodation preferences around the places to visit.'''
     return prompt
 
-        
-# Helper function to get LLM state from context
-def get_llm_state(context):
-    return context.chat_data.get("llm_active", False)
+def clean_response(message):
+    # First, replace literal '\n' with actual newline characters
+    message = message.replace('\\n', '\n')
 
-# Responses
-# def handle_response(text: str, context) -> str:
-#     processed: str = text.lower()
+    # Replace '*' with '-'
+    message = re.sub(r'(?<!\*)\*(?!\*)', '-', message)
 
-#     if get_llm_state(context): 
-#         # Get model, parameters, and safety_settings from context
-#         model = context.chat_data.get("llm_model")
-#         parameters = context.chat_data.get("llm_parameters")
-#         safety_settings = context.chat_data.get("llm_safety_settings") 
-#         chat = context.chat_data.get("llm_chat_history")    
-#         llm_response = generate(model, chat, parameters, safety_settings, text)
-#         return llm_response        
+    # Escape Markdown special characters in the text
+    message = telebot.formatting.escape_markdown(message)
 
-#     else:
-#         if "hello" in processed:
-#             return "Hey there! Where would you like to go?"
+    # Replace double asterisks with single asterisk
+    message = message.replace(r'\*\*', '*')
+  
+    return message
 
-#     return "I do not understand what you wrote..."
-
-
-# # Handle messages
-# async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-#     message_type: str = update.message.chat.type
-#     text: str = update.message.text  
-
-#     print(f'User ({update.message.chat.id}) in {message_type}: "{text}"')
-
-#     if "group" in message_type:
-#         if BOT_USERNAME in text:
-#             new_text: str = text.replace(BOT_USERNAME, "").strip()
-#             # response: str = handle_response(new_text, context)
-#         else:
-#             return
-#     else:
-#         # response: str = handle_response(text, context)
-
-#     # print("Bot: ", response)
-#     # await update.message.reply_text(response)
-
-
-# Logging errors
-async def error(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print(f"Update {update} caused error {context.error}")
 
 def initialise_model():
-     # Initialize Vertex AI access.
+    # Initialize Vertex AI access.
     vertexai.init(project="travelitinerarychatbot", location="us-central1")  
     parameters = {                                                 
         "max_output_tokens": 2048,
@@ -197,22 +302,17 @@ def initialise_model():
         "top_p": 1,                                              
     }   
     safety_settings = {
-    generative_models.HarmCategory.HARM_CATEGORY_HATE_SPEECH: generative_models.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    generative_models.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: generative_models.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    generative_models.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: generative_models.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-    generative_models.HarmCategory.HARM_CATEGORY_HARASSMENT: generative_models.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        generative_models.HarmCategory.HARM_CATEGORY_HATE_SPEECH: generative_models.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        generative_models.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: generative_models.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        generative_models.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: generative_models.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        generative_models.HarmCategory.HARM_CATEGORY_HARASSMENT: generative_models.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
     }                                                          
-    # model = TextGenerationModel.from_pretrained("text-bison@002") 
     model = GenerativeModel("gemini-1.0-pro-001")
     chat = model.start_chat(history=[])
     return model, chat, parameters, safety_settings 
     
 
-
 def generate(model, chat, parameters, safety_settings, prompt: str) -> str:
-    
-    # response = model.predict(prompt, **parameters)     
-    # response = model.generate_content(prompt, generation_config=parameters, safety_settings=safety_settings)   
     chat.send_message(prompt, generation_config=parameters, safety_settings=safety_settings)    
     response = chat.history[-1].parts[0]
     print(f"Response from Model: {response.text}")                              
@@ -220,18 +320,4 @@ def generate(model, chat, parameters, safety_settings, prompt: str) -> str:
 
 if __name__ == "__main__":
     print("Starting bot...")
-    app = Application.builder().token(TOKEN).build()
-
-    # Commands
-    app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("help", help_command))
-
-    # Messages
-    app.add_handler(MessageHandler(filters.TEXT, get_user_response))
-
-    # Errors
-    app.add_error_handler(error)
-
-    # Polls the bot
-    print("Polling...")
-    app.run_polling(poll_interval=3)
+    bot.polling(none_stop=True)
