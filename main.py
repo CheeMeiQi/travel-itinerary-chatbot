@@ -124,6 +124,7 @@ def start(message):
 	# Start new Gemini Conversation for the user
 	global chat 
 	chat = model.start_chat(history=[])
+	chat_data[message.chat_id] = {"user_state": "generate_itinerary"}
 	
 	# Feed behavioural prompt to Gemini
 	with open ("initial_prompt.txt", "r") as f:
@@ -147,7 +148,8 @@ def start(message):
 @bot.message_handler(commands=['generate'])
 def generate_full_itinerary(message):
 	bot.send_chat_action(message.chat.id, 'typing')
-
+	chat_data[message.chat_id] = {"user_state": "generate_itinerary"}
+	
 	# prompt gemini ai to generate full itinerary
 	with open ("itinerary_generation_prompt.txt", "r") as f:
 		itinerary_generation_prompt = f.read()
@@ -173,7 +175,7 @@ def help(message):
 		`/generate` - Generate Full Itinerary (After a Travel Itinerary is created)'
 	bot.send_message(message.chat.id, help_message)
 
-@bot.message_handler(func=lambda m: True)
+@bot.message_handler(func=lambda message: chat_data.get(message.chat.id, {}).get("user_state") == "generate_intinerary")
 def handle_user_request(message):
 	bot.send_chat_action(message.chat.id, 'typing')
 
