@@ -84,15 +84,19 @@ def clean_response(text):
     # text = text.replace('\\*\\*', '**')
 	text = text.replace('\\*\\*', '**')
 
-	# Replace '\>\>' with '>>'
-	text = text.replace('\\>\\>', '>>')
+	# # Replace '\>\>' with '>>'
+	# text = text.replace('\\>\\>', '>>')
+
+	# Replace '\|\>' with '||'
+	text = text.replace('\\|\\|', '||')
+
 	return text
 
 # To send sentences one at a time with a delay
 def send_gemini_responses(chat_id, gemini_text_respone, delay=1):
 	# print("gemini response:", gemini_text_respone)
-	# Split the text by the character '\n'
-	messages = clean_response(gemini_text_respone).split('\n')
+	# Split the text by the string '||'
+	messages = clean_response(gemini_text_respone).split('||')
 	# Send each message separately
 	print("messages:")
 	for message in messages:
@@ -104,7 +108,10 @@ def send_gemini_responses(chat_id, gemini_text_respone, delay=1):
 # for responses to /generate
 def send_itinerary_response(chat_id, gemini_text_respone, delay=1):
 	# Split the text by the character '>>'
-	messages = clean_response(gemini_text_respone).split('>>')
+	print("clean_response")
+	print(clean_response(gemini_text_respone))
+	# messages = clean_response(gemini_text_respone).split('\>\>')
+	messages = clean_response(gemini_text_respone).split('||')
 	# Send each message separately
 	print("messages:")
 	for message in messages:
@@ -124,7 +131,7 @@ def start(message):
 	# Start new Gemini Conversation for the user
 	global chat 
 	chat = model.start_chat(history=[])
-	chat_data[message.chat_id] = {"user_state": "generate_itinerary"}
+	chat_data[message.chat.id] = {"user_state": "generate_itinerary"}
 	
 	# Feed behavioural prompt to Gemini
 	with open ("initial_prompt.txt", "r") as f:
@@ -148,7 +155,7 @@ def start(message):
 @bot.message_handler(commands=['generate'])
 def generate_full_itinerary(message):
 	bot.send_chat_action(message.chat.id, 'typing')
-	chat_data[message.chat_id] = {"user_state": "generate_itinerary"}
+	chat_data[message.chat.id] = {"user_state": "generate_itinerary"}
 	
 	# prompt gemini ai to generate full itinerary
 	with open ("itinerary_generation_prompt.txt", "r") as f:
@@ -172,10 +179,11 @@ def generate_full_itinerary(message):
 def help(message):
 	help_message = 'I can help you create your Travel Itinerary.\n\nYou can control me by using these commands:\n\
 		`/start` - Create a new Travel Itinerary\n\
-		`/generate` - Generate Full Itinerary (After a Travel Itinerary is created)'
+		`/generate` - Generate Full Itinerary (After a Travel Itinerary is created)\n\
+		`/tripadvisor` - Get review and ratings for locations from TripAdvisor'
 	bot.send_message(message.chat.id, help_message)
 
-@bot.message_handler(func=lambda message: chat_data.get(message.chat.id, {}).get("user_state") == "generate_intinerary")
+@bot.message_handler(func=lambda message: chat_data.get(message.chat.id, {}).get("user_state") == "generate_itinerary")
 def handle_user_request(message):
 	bot.send_chat_action(message.chat.id, 'typing')
 

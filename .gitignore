@@ -1,6 +1,9 @@
 # API keys
 secret_tokens.py
 
+# environment
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
