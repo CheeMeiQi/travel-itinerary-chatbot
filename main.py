@@ -246,7 +246,7 @@ def get_tripadvisor_location(message):
             
             # Append the review details to the message string, separating each review with 2 lines
             reviews_message += f"**{title}**\nRating: {rating}\nReviews: {text}\nLink: {review_url}\n\n"
-            formatted_reviews = clean_response(reviews_message)
+        formatted_reviews = clean_response(reviews_message)
         bot.send_message(
             chat_id,
             formatted_reviews,
