@@ -89,7 +89,14 @@ def send_gemini_responses(chat_id, gemini_text_respone, delay=0.5):
 		# print("markdown message: ", message)
 		print("html message: ",markdown_to_html(message))
 		if message.strip():  # If the stripped message is not empty
-			bot.send_message(chat_id, markdown_to_html(message), parse_mode="HTML")
+			chunks = split_into_word_chunks_with_formatting(message, max_length= 4096)
+			for chunk in chunks:
+				bot.send_message(
+					chat_id,
+					markdown_to_html(chunk),
+					parse_mode="HTML"
+				)
+			# bot.send_message(chat_id, markdown_to_html(message), parse_mode="HTML")
 			time.sleep(delay)
 
 def split_into_word_chunks_with_formatting(text, max_length):
@@ -141,22 +148,31 @@ def start(message):
 	gemini_response = chat.history[-1]
 	print(gemini_response.parts[0])
 	if gemini_response:
-		# bot.send_message(message.chat.id, gemini_response.parts[0].text)
 		send_gemini_responses(message.chat.id, gemini_response.parts[0].text)
 	else:
 		print("No response")
 		bot.send_message(message.chat.id, "There was a mistake.. Please restart the chat by using the `/start` command.")
 
 # '/generate' command
+global generate_count
+generate_count = 0
 @bot.message_handler(commands=['generate'])
 def generate_full_itinerary(message):
 	bot.send_chat_action(message.chat.id, 'typing')
 	chat_data[message.chat.id] = {"user_state": "generate_itinerary"}
 	print("User state: ", chat_data[message.chat.id]["user_state"])
 	
-	# prompt gemini ai to generate full itinerary
-	with open ("itinerary_generation_prompt.txt", "r") as f:
-		itinerary_generation_prompt = f.read()
+	global generate_count
+	generate_count += 1
+
+	if generate_count == 1:
+		# prompt gemini ai to generate full itinerary
+		with open ("itinerary_generation_prompt.txt", "r") as f:
+			itinerary_generation_prompt = f.read()
+	else:
+		# force generate itinerary without asking more questions
+		with open ("force_itinerary_generation_prompt.txt", "r") as f:
+			itinerary_generation_prompt = f.read()
 	
 	try:
 		chat.send_message(itinerary_generation_prompt)
@@ -256,8 +272,8 @@ def help(message):
 	`/usefullinks` - Useful Links for Travellers"
 	bot.send_message(message.chat.id, help_message)
 
+
 @bot.message_handler(func=lambda message: chat_data.get(message.chat.id, {}).get("user_state") == "generate_itinerary")
-# @bot.message_handler(func=lambda message: True)
 def handle_user_request(message):
 	bot.send_chat_action(message.chat.id, 'typing')
 	print("User state 2: ", chat_data[message.chat.id]["user_state"])
