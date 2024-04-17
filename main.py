@@ -9,10 +9,6 @@ from vertexai.language_models import TextGenerationModel
 from vertexai.generative_models import GenerativeModel
 import vertexai.preview.generative_models as generative_models
 
-TOKEN: Final = "6409677499:AAEv6YdJw_X8MCuIk0pHQpPYqKssui2p1Ww"
-BOT_NAME: Final = "Travel Itinerary Chatbot"
-BOT_USERNAME: Final = "@get_that_itinerary_bot"
-TRIPADVISOR_API: Final = "1340A505AD4B4495BF6E2A74F2609F68"
 
 # Telebot
 bot = telebot.TeleBot(TOKEN, parse_mode=None)
@@ -65,10 +61,10 @@ def get_user_response(message):
             chat_data[chat_id]["user_state"] = "waiting_travel_period"
             bot.send_message(
                 chat_id,
-                'What is period of travel (please provides dates)?'
+                'What is your period of travel (please provide dates)?'
             )
         elif user_state == "waiting_travel_period":
-            chat_data[chat_id]["user_data"]["What is period of travel (please provides dates)?"] = message.text
+            chat_data[chat_id]["user_data"]["What is your period of travel (please provide dates)?"] = message.text
             chat_data[chat_id]["user_state"] = "waiting_origin"
             bot.send_message(
                 chat_id,
@@ -263,7 +259,7 @@ def construct_prompt(user_data: dict) -> str:
     prompt = f'''Plan a Travel Itinerary according to these requirements:
             \nDestination: {user_data['Where do you wish to go?']}
             \nTravelling from: {user_data['Where are you travelling from?']}
-            \nTravel Period: {user_data['What is period of travel (please provides dates)?']}
+            \nTravel Period: {user_data['What is your period of travel (please provide dates)?']}
             \nStay Duration: {user_data['How many days are you planning to stay?']} days
             \nBudget: {user_data['What is your budget?']}
             \nTravel Type: {user_data['What is your desired type of trip? Eg: Relaxation, backpacker, solo travel, with family, with friends, etc.']}
